@@ -24,6 +24,7 @@ import java.util.Set;
 
 import org.springframework.data.mapping.PersistentPropertyAccessor;
 import org.springframework.data.mapping.PersistentPropertyPath;
+import org.springframework.data.mapping.TraversalContext;
 import org.springframework.data.relational.core.mapping.PersistentPropertyPathExtension;
 import org.springframework.data.relational.core.mapping.RelationalMappingContext;
 import org.springframework.data.relational.core.mapping.RelationalPersistentEntity;
@@ -64,7 +65,7 @@ public class AggregateChange<T> {
 
 		RelationalPersistentProperty leafProperty = propertyPathToEntity.getRequiredLeafProperty();
 
-		Object currentPropertyValue = propertyAccessor.getProperty(propertyPathToEntity);
+		Object currentPropertyValue = propertyAccessor.getProperty(propertyPathToEntity, createTraversalContext(action));
 		Assert.notNull(currentPropertyValue, "Trying to set an ID for an element that does not exist");
 
 		if (leafProperty.isQualified()) {
@@ -99,6 +100,55 @@ public class AggregateChange<T> {
 		}
 	}
 
+	private static TraversalContext createTraversalContext(DbAction.WithDependingOn<?> action) {
+
+		TraversalContext traversalContext = new TraversalContext();
+
+		DbAction.WithEntity<?> parent = action.getDependingOn();
+
+		if (parent != null && parent instanceof DbAction.WithDependingOn) {
+			addQualifiers((DbAction.WithDependingOn<?>) parent, traversalContext);
+		}
+
+		return traversalContext;
+	}
+
+	private static void addQualifiers(DbAction.WithDependingOn<?> action, TraversalContext traversalContext) {
+
+		Map<PersistentPropertyPath<RelationalPersistentProperty>, Object> qualifiers = action.getQualifiers();
+
+		for (Map.Entry<PersistentPropertyPath<RelationalPersistentProperty>, Object> persistentPropertyPathObjectEntry : qualifiers
+				.entrySet()) {
+
+			DbAction.WithEntity<?> parentAction = action.getDependingOn();
+			if (parentAction != null && parentAction instanceof DbAction.WithDependingOn) {
+				addQualifiers((DbAction.WithDependingOn<?>) parentAction, traversalContext);
+			}
+
+			RelationalPersistentProperty leafProperty = persistentPropertyPathObjectEntry.getKey().getRequiredLeafProperty();
+			if (persistentPropertyPathObjectEntry.getValue() != null) {
+				System.out.println(String.format("registering handler for %s with value %s", leafProperty.getName(),
+						persistentPropertyPathObjectEntry.getValue()));
+				traversalContext.registerHandler(leafProperty,
+						col -> extract(col, persistentPropertyPathObjectEntry.getValue()));
+			}
+		}
+	}
+
+	private static Object extract(Object collection, Object key) {
+		if (collection instanceof List) {
+			return ((List) collection).get((Integer) key);
+		}
+		if (collection instanceof Map) {
+			return ((Map) collection).get(key);
+		}
+		if (collection instanceof Set) {
+			throw new IllegalStateException(
+					"Elements of a Set should have an id and there for don't go through this code path");
+		}
+
+		throw new IllegalArgumentException(String.format("Can't extract collection element %s from %s", key, collection));
+	}
 
 	public void setEntity(@Nullable T aggregateRoot) {
 		entity = aggregateRoot;
