@@ -96,6 +96,8 @@ public class AggregateChange<T> {
 					propertyPathToEntity.toDotPath() + '.' + requiredIdProperty.getName(),
 					propertyPathToEntity.getBaseProperty().getOwner().getType());
 
+
+			// TODO: We need setProperty with traversalContext as well.
 			propertyAccessor.setProperty(pathToId, generatedId);
 		}
 	}
